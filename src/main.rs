@@ -30,6 +30,14 @@ impl Handler for WebSocketServer {
                     Ok(None) => unreachable!(),
                     Ok(Some((sock, addr))) => sock,
                 };
+                let new_token = Token(self.token_counter);
+                self.clients.insert(new_token, client_socket);
+                self.token_counter += 1;
+                event_loop.register(&self.clients[&new_token],
+                                    new_token,
+                                    EventSet::readable(),
+                                    PollOpt::edge() | PollOpt::onwshot())
+                          .unwrap();
             }
         }
 
@@ -38,13 +46,17 @@ impl Handler for WebSocketServer {
 
 fn main() {
     let mut event_loop = EventLoop::new().unwrap();
-    let mut handler = WebSocketServer;
-    let address = "0.0.0.0:10000".parse::<SocketAddr>().unwrap();
     let server_socket = TcpListener::bind(&address).unwrap();
-    event_loop.register(&server_socket,
-                        Token(0),
+    let mut server = WebSocketServer {
+        token_counter: 1,
+        clients: HashMap::new(),
+        socket: server_socket,
+    };
+    let address = "0.0.0.0:10000".parse::<SocketAddr>().unwrap();
+    event_loop.register(&server.socket,
+                        SERVER_TOKEN,
                         EventSet::readable(),
                         PollOpt::edge())
               .unwrap();
-    event_loop.run(&mut handler).unwrap();
+    event_loop.run(&mut server).unwrap();
 }
