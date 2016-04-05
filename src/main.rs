@@ -2,12 +2,38 @@ extern crate mio;
 use mio::*;
 use std::net::SocketAddr;
 use mio::tcp::*;
+use std::collections::HashMap;
 
-struct WebSocketServer;
+struct WebSocketServer {
+    socket: TcpListener,
+    clients: HashMap<Token, TcpStream>,
+    token_counter: usize,
+}
+
+const SERVER_TOKEN: Token = Token(0);
 
 impl Handler for WebSocketServer {
     type Timeout = usize;
     type Message = ();
+
+    fn ready(&mut self,
+             event_loop: &mut EventLoop<WebSocketServer>,
+             token: Token,
+             events: EventSet) {
+        match token {
+            SERVER_TOKEN => {
+                let client_socket = match self.socket.accept() {
+                    Err(e) => {
+                        println!("Accept error: {}", e);
+                        return;
+                    }
+                    Ok(None) => unreachable!(),
+                    Ok(Some((sock, addr))) => sock,
+                };
+            }
+        }
+
+    }
 }
 
 fn main() {
