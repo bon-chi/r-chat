@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 struct WebSocketServer {
     socket: TcpListener,
-    clients: HashMap<Token, TcpStream>,
+    clients: HashMap<Token, WebSocketClient>,
     token_counter: usize,
 }
 
@@ -31,12 +31,21 @@ impl Handler for WebSocketServer {
                     Ok(Some((sock, addr))) => sock,
                 };
                 let new_token = Token(self.token_counter);
-                self.clients.insert(new_token, client_socket);
+                self.clients.insert(new_token, WebSocketClient::new(client_socket));
                 self.token_counter += 1;
-                event_loop.register(&self.clients[&new_token],
+                event_loop.register(&self.clients[&new_token].socket,
                                     new_token,
                                     EventSet::readable(),
-                                    PollOpt::edge() | PollOpt::onwshot())
+                                    PollOpt::edge() | PollOpt::oneshot())
+                          .unwrap();
+            }
+            token => {
+                let mut client = self.clients.get_mut(&token).unwrap();
+                client.read();
+                event_loop.reregister(&client.socket,
+                                      token,
+                                      EventSet::readable(),
+                                      PollOpt::edge() | PollOpt::oneshot())
                           .unwrap();
             }
         }
@@ -44,15 +53,55 @@ impl Handler for WebSocketServer {
     }
 }
 
+extern crate http_muncher;
+use http_muncher::{Parser, ParserHandler};
+
+struct HttpParser;
+impl ParserHandler for HttpParser {}
+
+struct WebSocketClient {
+    socket: TcpStream,
+    http_parser: Parser<HttpParser>,
+}
+
+impl WebSocketClient {
+    fn new(socket: TcpStream) -> WebSocketClient {
+        WebSocketClient {
+            socket: socket,
+            http_parser: Parser::request(HttpParser),
+        }
+    }
+
+    fn read(&mut self) {
+        loop {
+            let mut buf = [0; 2048];
+            match self.socket.try_read(&mut buf) {
+                Err(e) => {
+                    println!("Error while readingg socket: {:?}", e);
+                    return;
+                }
+                Ok(None) => break,
+                Ok(Some(len)) => {
+                    self.http_parser.parse(&buf[0..len]);
+                    if self.http_parser.is_upgrade() {
+                        break;
+                    }
+                }
+
+            }
+        }
+    }
+}
+
 fn main() {
     let mut event_loop = EventLoop::new().unwrap();
+    let address = "0.0.0.0:10000".parse::<SocketAddr>().unwrap();
     let server_socket = TcpListener::bind(&address).unwrap();
     let mut server = WebSocketServer {
         token_counter: 1,
         clients: HashMap::new(),
         socket: server_socket,
     };
-    let address = "0.0.0.0:10000".parse::<SocketAddr>().unwrap();
     event_loop.register(&server.socket,
                         SERVER_TOKEN,
                         EventSet::readable(),
