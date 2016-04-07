@@ -5,9 +5,9 @@ use mio::tcp::*;
 use std::collections::HashMap;
 
 extern crate sha1;
-extern crate rustc-serialize;
+extern crate rustc_serialize;
 
-use rustc-serialize::base64::{ToBase64, STANDARD};
+use rustc_serialize::base64::{ToBase64, STANDARD};
 
 fn gen_key(key: &String) -> String {
     let mut m = sha1::Sha1::new();
@@ -72,9 +72,30 @@ impl Handler for WebSocketServer {
 
 extern crate http_muncher;
 use http_muncher::{Parser, ParserHandler};
+use std::cell::RefCell;
+use std::rc::Rc;
 
-struct HttpParser;
-impl ParserHandler for HttpParser {}
+struct HttpParser {
+    current_key: Option<String>,
+    headers: Rc<RefCell<HashMap<String, String>>>,
+}
+
+impl ParserHandler for HttpParser {
+    fn on_header_field(&mut self, s: &[u8]) -> bool {
+        self.current_key = Some(std::str::from_utf8(s).unwrap().to_string());
+        true
+    }
+
+    fn on_header_value(&mut self, s: &[u8]) -> bool {
+        self.headers.borrow_mut().insert(self.current_key.clone().unwrap(),
+                                         std::str::from_utf8(s).unwrap().to_string());
+        true
+    }
+
+    fn on_headers_complete(&mut self) -> bool {
+        false
+    }
+}
 
 struct WebSocketClient {
     socket: TcpStream,
